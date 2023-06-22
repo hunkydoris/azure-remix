@@ -1,14 +1,9 @@
-const path = require("path");
+import path from "path";
 
-const { createRequestHandler } = require("@remix-run/express");
-const { installGlobals } = require("@remix-run/node");
-const compression = require("compression");
-const express = require("express");
-const morgan = require("morgan");
-
-installGlobals();
-
-const BUILD_DIR = path.join(process.cwd(), "build");
+import { createRequestHandler } from "@remix-run/express";
+import compression from "compression";
+import express from "express";
+import morgan from "morgan";
 
 const app = express();
 
@@ -29,36 +24,40 @@ app.use(express.static("public", { maxAge: "1h" }));
 
 app.use(morgan("tiny"));
 
+const MODE = process.env.NODE_ENV;
+const BUILD_DIR = path.join(process.cwd(), "build");
+
 app.all(
   "*",
-  process.env.NODE_ENV === "development"
-    ? (req, res, next) => {
+  MODE === "production"
+    ? createRequestHandler({ build: require(BUILD_DIR) })
+    : (...args) => {
         purgeRequireCache();
-
-        return createRequestHandler({
+        const requestHandler = createRequestHandler({
           build: require(BUILD_DIR),
-          mode: process.env.NODE_ENV,
-        })(req, res, next);
+          mode: MODE,
+        });
+        return requestHandler(...args);
       }
-    : createRequestHandler({
-        build: require(BUILD_DIR),
-        mode: process.env.NODE_ENV,
-      })
 );
+
 const port = process.env.PORT || 3000;
 
 app.listen(port, () => {
-  console.log(`Express server listening on port ${port}`);
+  // require the built app so we're ready when the first request comes in
+  require(BUILD_DIR);
+  console.log(`✅ app ready: http://localhost:${port}`);
 });
 
 function purgeRequireCache() {
   // purge require cache on requests for "server side HMR" this won't let
   // you have in-memory objects between requests in development,
   // alternatively you can set up nodemon/pm2-dev to restart the server on
-  // file changes, but then you'll have to reconnect to databases/etc on each
-  // change. We prefer the DX of this, so we've included it for you by default
+  // file changes, we prefer the DX of this though, so we've included it
+  // for you by default
   for (const key in require.cache) {
     if (key.startsWith(BUILD_DIR)) {
+      // eslint-disable-next-line @typescript-eslint/no-dynamic-delete
       delete require.cache[key];
     }
   }
